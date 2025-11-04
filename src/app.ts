@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { errorHandler } from './middleware/error.js';
 import { generalLimiter, authLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { env } from './config/env.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import usersRoutes from './modules/users/users.routes.js';
 
@@ -13,11 +14,19 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
-app.use(generalLimiter);
+
+if (env.NODE_ENV !== 'test') {
+  app.use(generalLimiter);
+}
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-app.use('/api/auth', authLimiter, authRoutes);
+if (env.NODE_ENV !== 'test') {
+  app.use('/api/auth', authLimiter, authRoutes);
+} else {
+  app.use('/api/auth', authRoutes);
+}
+
 app.use('/api/users', usersRoutes);
 
 app.use(errorHandler);

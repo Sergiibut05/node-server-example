@@ -16,6 +16,7 @@ Este proyecto implementa una API REST con Node.js, Express y PostgreSQL siguiend
   - [v0.6.0 - Middleware de autenticación](#v060---middleware-de-autenticación)
   - [v0.7.0 - Mejoras en Users](#v070---mejoras-en-users-actualizar-perfil-y-cambiar-contraseña)
   - [v0.8.0 - Seguridad adicional](#v080---seguridad-adicional-rate-limiting-y-logging)
+  - [v0.9.0 - Testing](#v090---testing-con-jest-y-supertest)
 
 ---
 
@@ -63,6 +64,9 @@ git log v0.2.0..v0.3.0 --oneline
 - **Morgan** - Logging de requests HTTP
 - **Helmet** - Seguridad con headers HTTP
 - **CORS** - Control de acceso cross-origin
+- **Winston** - Sistema de logging profesional
+- **express-rate-limit** - Rate limiting por IP
+- **Jest** + **Supertest** - Testing de integración
 
 ---
 
@@ -95,6 +99,9 @@ npm start
 
 # O en modo desarrollo
 npm run dev
+
+# Ejecutar tests
+npm test
 ```
 
 ### Probar la API
@@ -2119,6 +2126,592 @@ tail -f logs/all.log
 
 ---
 
+## v0.9.0 - Testing con Jest y Supertest
+
+**Objetivo:** Implementar un sistema de testing completo con Jest y Supertest para validar el comportamiento de todos los endpoints de la API.
+
+### Paso 1: Instalar dependencias de testing
+
+```bash
+npm install -D jest ts-jest @types/jest supertest @types/supertest
+```
+
+**Dependencias:**
+- `jest` - Framework de testing de JavaScript
+- `ts-jest` - Preset de Jest para TypeScript
+- `@types/jest` - Tipos TypeScript para Jest
+- `supertest` - Librería para testing HTTP
+- `@types/supertest` - Tipos TypeScript para Supertest
+
+### Paso 2: Configurar Jest
+
+Crear `jest.config.js`:
+
+```javascript
+export default {
+  preset: 'ts-jest/presets/default-esm',
+  testEnvironment: 'node',
+  extensionsToTreatAsEsm: ['.ts'],
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
+  transform: {
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        useESM: true,
+      },
+    ],
+  },
+  roots: ['<rootDir>/src'],
+  testMatch: ['**/__tests__/**/*.test.ts', '**/?(*.)+(spec|test).ts'],
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/tests/**',
+    '!src/index.ts',
+  ],
+  coverageDirectory: 'coverage',
+  verbose: true,
+};
+```
+
+**Configuración:**
+- **preset**: `ts-jest/presets/default-esm` - Soporte para ES modules
+- **testEnvironment**: `node` - Entorno Node.js
+- **extensionsToTreatAsEsm**: `['.ts']` - Archivos .ts como ES modules
+- **moduleNameMapper**: Mapea imports `.js` a archivos `.ts`
+- **transform**: Configura ts-jest con ESM habilitado
+- **roots**: Buscar tests en `src/`
+- **testMatch**: Patrones de archivos de test
+- **collectCoverageFrom**: Archivos para cobertura
+- **coverageDirectory**: Carpeta de reportes de cobertura
+
+### Paso 3: Crear tests de autenticación
+
+Crear `src/tests/auth.test.ts`:
+
+```typescript
+import request from 'supertest';
+import app from '../app';
+
+describe('Auth Endpoints', () => {
+  const testUser = {
+    email: `test${Date.now()}@example.com`,
+    name: 'Test User',
+    password: 'password123',
+  };
+
+  describe('POST /api/auth/register', () => {
+    it('debe registrar un nuevo usuario', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send(testUser);
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('user');
+      expect(res.body).toHaveProperty('token');
+      expect(res.body.user.email).toBe(testUser.email);
+      expect(res.body.user.name).toBe(testUser.name);
+      expect(res.body.user).not.toHaveProperty('passwordHash');
+    });
+
+    it('debe fallar con email duplicado', async () => {
+      await request(app).post('/api/auth/register').send(testUser);
+
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send(testUser);
+
+      expect(res.status).toBe(409);
+      expect(res.body.message).toBe('Email ya registrado');
+    });
+
+    it('debe fallar con email inválido', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ ...testUser, email: 'invalid-email' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('debe fallar con contraseña corta', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ ...testUser, email: 'new@example.com', password: '123' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('debe fallar con nombre corto', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ ...testUser, email: 'new@example.com', name: 'A' });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/auth/login', () => {
+    const loginUser = {
+      email: `login${Date.now()}@example.com`,
+      name: 'Login User',
+      password: 'password123',
+    };
+
+    beforeAll(async () => {
+      await request(app).post('/api/auth/register').send(loginUser);
+    });
+
+    it('debe hacer login correctamente', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ email: loginUser.email, password: loginUser.password });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('user');
+      expect(res.body).toHaveProperty('token');
+      expect(res.body.user.email).toBe(loginUser.email);
+    });
+
+    it('debe fallar con contraseña incorrecta', async () => {
+      const failUser = {
+        email: `fail${Date.now()}@example.com`,
+        name: 'Fail User',
+        password: 'correctpass123',
+      };
+      await request(app).post('/api/auth/register').send(failUser);
+
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ email: failUser.email, password: 'wrongpassword' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe('Credenciales inválidas');
+    });
+
+    it('debe fallar con email inexistente', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ email: `noexiste${Date.now()}@example.com`, password: 'password123' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe('Credenciales inválidas');
+    });
+  });
+});
+```
+
+**Tests de Auth:**
+- **Registro exitoso**: Verifica que se crea usuario y se retorna token
+- **Email duplicado**: Verifica error 409 al registrar email existente
+- **Validación**: Verifica errores 400 con datos inválidos
+- **Login exitoso**: Verifica que se puede hacer login con credenciales correctas
+- **Login fallido**: Verifica errores con contraseña incorrecta o email inexistente
+
+**Buenas prácticas:**
+- Usuarios únicos con `Date.now()` para evitar conflictos
+- Assertions específicas con `expect()`
+- Verificar status codes HTTP correctos
+- Verificar estructura de respuestas
+- No exponer datos sensibles (passwordHash)
+
+### Paso 4: Crear tests de usuarios
+
+Crear `src/tests/users.test.ts`:
+
+```typescript
+import request from 'supertest';
+import app from '../app';
+
+describe('Users Endpoints', () => {
+  let authToken: string;
+  let userId: number;
+  
+  const testUser = {
+    email: `testuser${Date.now()}@example.com`,
+    name: 'Test User',
+    password: 'password123',
+  };
+
+  beforeAll(async () => {
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send(testUser);
+    
+    authToken = res.body.token;
+    userId = res.body.user.id;
+  });
+
+  describe('GET /api/users', () => {
+    it('debe listar usuarios con autenticación', async () => {
+      const res = await request(app)
+        .get('/api/users')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    it('debe fallar sin autenticación', async () => {
+      const res = await request(app).get('/api/users');
+
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe('No autorizado');
+    });
+
+    it('debe fallar con token inválido', async () => {
+      const res = await request(app)
+        .get('/api/users')
+        .set('Authorization', 'Bearer invalid_token');
+
+      expect(res.status).toBe(401);
+      expect(res.body.message).toBe('Token inválido');
+    });
+  });
+
+  describe('GET /api/users/me', () => {
+    it('debe obtener perfil del usuario autenticado', async () => {
+      const res = await request(app)
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.email).toBe(testUser.email);
+      expect(res.body.name).toBe(testUser.name);
+      expect(res.body).not.toHaveProperty('passwordHash');
+    });
+
+    it('debe fallar sin autenticación', async () => {
+      const res = await request(app).get('/api/users/me');
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('PATCH /api/users/me', () => {
+    it('debe actualizar perfil propio', async () => {
+      const res = await request(app)
+        .patch('/api/users/me')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ name: 'Updated Name' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Updated Name');
+    });
+
+    it('debe fallar sin autenticación', async () => {
+      const res = await request(app)
+        .patch('/api/users/me')
+        .send({ name: 'Updated Name' });
+
+      expect(res.status).toBe(401);
+    });
+
+    it('debe fallar con email inválido', async () => {
+      const res = await request(app)
+        .patch('/api/users/me')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ email: 'invalid-email' });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('PATCH /api/users/me/password', () => {
+    it('debe cambiar contraseña correctamente', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/password')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ 
+          currentPassword: 'password123', 
+          newPassword: 'newpassword456' 
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBe('Contraseña actualizada correctamente');
+
+      const loginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: testUser.email, password: 'newpassword456' });
+
+      expect(loginRes.status).toBe(200);
+    });
+
+    it('debe fallar con contraseña actual incorrecta', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/password')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ 
+          currentPassword: 'wrongpassword', 
+          newPassword: 'newpassword789' 
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Contraseña actual incorrecta');
+    });
+
+    it('debe fallar sin autenticación', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/password')
+        .send({ 
+          currentPassword: 'password123', 
+          newPassword: 'newpassword456' 
+        });
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('GET /api/users/:id', () => {
+    it('debe obtener usuario por ID', async () => {
+      const res = await request(app)
+        .get(`/api/users/${userId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(userId);
+    });
+
+    it('debe fallar con ID inexistente', async () => {
+      const res = await request(app)
+        .get('/api/users/99999')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
+});
+```
+
+**Tests de Users:**
+- **Autenticación requerida**: Verifica que endpoints están protegidos
+- **Perfil autenticado**: Verifica GET /me con JWT
+- **Actualizar perfil**: Verifica PATCH /me
+- **Cambiar contraseña**: Verifica validación y cambio exitoso
+- **Obtener por ID**: Verifica GET /:id
+- **Errores**: Verifica respuestas con IDs inexistentes, tokens inválidos, etc.
+
+**Setup con `beforeAll`:**
+- Crea usuario de prueba antes de ejecutar tests
+- Guarda token y userId para usar en tests
+- Evita repetir código de registro en cada test
+
+### Paso 5: Deshabilitar rate limiting en tests
+
+Actualizar `src/app.ts` para deshabilitar rate limiting en entorno de test:
+
+```typescript
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { errorHandler } from './middleware/error.js';
+import { generalLimiter, authLimiter } from './middleware/rateLimiter.js';
+import { requestLogger } from './middleware/requestLogger.js';
+import { env } from './config/env.js';
+import authRoutes from './modules/auth/auth.routes.js';
+import usersRoutes from './modules/users/users.routes.js';
+
+const app = express();
+
+app.use(helmet());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(requestLogger);
+
+if (env.NODE_ENV !== 'test') {
+  app.use(generalLimiter);
+}
+
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+if (env.NODE_ENV !== 'test') {
+  app.use('/api/auth', authLimiter, authRoutes);
+} else {
+  app.use('/api/auth', authRoutes);
+}
+
+app.use('/api/users', usersRoutes);
+
+app.use(errorHandler);
+
+export default app;
+```
+
+**Cambios:**
+- Importar `env` de config
+- Condicional `if (env.NODE_ENV !== 'test')` para rate limiters
+- Permite ejecutar tests sin límite de peticiones
+- No afecta funcionamiento en desarrollo/producción
+
+### Paso 6: Configurar scripts de test
+
+Actualizar `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "build": "tsc -p .",
+    "start": "node dist/index.js",
+    "test": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:watch": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "test:coverage": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --coverage"
+  }
+}
+```
+
+**Scripts:**
+- **test**: Ejecutar todos los tests una vez
+- **test:watch**: Ejecutar tests en modo watch (re-ejecuta al cambiar archivos)
+- **test:coverage**: Ejecutar tests y generar reporte de cobertura
+
+**Variables:**
+- `NODE_ENV=test` - Configura entorno como test
+- `NODE_OPTIONS=--experimental-vm-modules` - Habilita soporte experimental para ES modules en Jest
+
+### Paso 7: Actualizar .gitignore
+
+Actualizar `.gitignore`:
+
+```
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+coverage/
+.vscode/
+.idea/
+*.swp
+*.swo
+.env.test
+.env.production
+logs/
+*.tsbuildinfo
+```
+
+**Añadido:**
+- `*.tsbuildinfo` - Archivos de información de compilación de TypeScript
+
+### Paso 8: Ejecutar tests
+
+```bash
+npm test
+```
+
+**Salida esperada:**
+
+```
+Test Suites: 2 passed, 2 total
+Tests:       21 passed, 21 total
+Snapshots:   0 total
+Time:        1.3 s
+Ran all test suites.
+```
+
+**Tests ejecutados:**
+- 8 tests de Auth (registro y login)
+- 13 tests de Users (CRUD y autenticación)
+- Total: 21 tests pasados
+
+### Paso 9: Ver cobertura de código
+
+```bash
+npm run test:coverage
+```
+
+**Qué hace:**
+- Ejecuta todos los tests
+- Analiza qué líneas de código fueron ejecutadas
+- Genera reporte en `coverage/`
+- Muestra tabla con porcentajes de cobertura
+
+**Abrir reporte HTML:**
+
+```bash
+open coverage/lcov-report/index.html
+```
+
+**Métricas de cobertura:**
+- **Statements**: Porcentaje de sentencias ejecutadas
+- **Branches**: Porcentaje de ramas if/else ejecutadas
+- **Functions**: Porcentaje de funciones llamadas
+- **Lines**: Porcentaje de líneas ejecutadas
+
+### Paso 10: Tests en modo watch
+
+```bash
+npm run test:watch
+```
+
+**Qué hace:**
+- Ejecuta tests inicialmente
+- Observa cambios en archivos
+- Re-ejecuta tests automáticamente al guardar
+- Modo interactivo con opciones (filtrar, re-run, etc)
+
+**Útil para:**
+- Desarrollo con TDD (Test Driven Development)
+- Debugging de tests
+- Desarrollo iterativo
+
+### Resumen v0.9.0
+
+**Tests implementados: 21**
+
+#### Auth Tests (8)
+- ✓ Registro exitoso
+- ✓ Email duplicado
+- ✓ Email inválido
+- ✓ Contraseña corta
+- ✓ Nombre corto
+- ✓ Login exitoso
+- ✓ Contraseña incorrecta
+- ✓ Email inexistente
+
+#### Users Tests (13)
+- ✓ Listar con auth
+- ✓ Listar sin auth
+- ✓ Token inválido
+- ✓ Perfil autenticado
+- ✓ Perfil sin auth
+- ✓ Actualizar perfil
+- ✓ Actualizar sin auth
+- ✓ Email inválido en update
+- ✓ Cambiar contraseña
+- ✓ Cambiar con contraseña incorrecta
+- ✓ Cambiar sin auth
+- ✓ Obtener por ID
+- ✓ ID inexistente
+
+**Archivos creados:**
+- `jest.config.js` - Configuración Jest
+- `src/tests/auth.test.ts` - Tests de autenticación
+- `src/tests/users.test.ts` - Tests de usuarios
+
+**Archivos modificados:**
+- `src/app.ts` - Deshabilitar rate limiting en tests
+- `package.json` - Scripts de testing
+- `.gitignore` - Añadido *.tsbuildinfo
+
+**Comandos útiles:**
+```bash
+npm test              # Ejecutar todos los tests
+npm run test:watch    # Tests en modo watch
+npm run test:coverage # Tests con cobertura
+```
+
+**Beneficios del testing:**
+- Validación automatizada de funcionalidad
+- Detección temprana de bugs
+- Refactoring seguro
+- Documentación viva del comportamiento
+- Confianza en deployments
+- Cobertura de código medible
+
+---
+
 ## 📊 Estado actual del proyecto
 
 ### Estructura completa
@@ -2135,6 +2728,8 @@ node-server/
 │   ├── middleware/
 │   │   ├── auth.ts          # Verificación JWT
 │   │   ├── error.ts         # Manejo de errores
+│   │   ├── rateLimiter.ts   # Rate limiting
+│   │   ├── requestLogger.ts # Logger de requests
 │   │   └── validate.ts      # Validación Zod
 │   ├── modules/
 │   │   ├── auth/
@@ -2146,11 +2741,21 @@ node-server/
 │   │       ├── users.routes.ts
 │   │       ├── users.schema.ts
 │   │       └── users.service.ts
+│   ├── tests/
+│   │   ├── auth.test.ts     # Tests de autenticación
+│   │   └── users.test.ts    # Tests de usuarios
+│   ├── utils/
+│   │   └── logger.ts        # Winston logger
 │   ├── app.ts               # Configuración Express
 │   └── index.ts             # Servidor
 ├── docs/
 │   └── API_EXAMPLES.md      # Ejemplos de uso
+├── logs/                    # Archivos de log
+│   ├── all.log             # Todos los logs
+│   └── error.log           # Solo errores
+├── coverage/                # Reportes de cobertura
 ├── docker-compose.yml       # PostgreSQL container
+├── jest.config.js           # Configuración Jest
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
@@ -2184,9 +2789,16 @@ node-server/
 ✅ **Seguridad**
 - Helmet (headers HTTP)
 - CORS configurado
-- Rate limiting (pendiente)
+- Rate limiting (express-rate-limit)
+- Winston logger profesional
 - Passwords hasheadas
 - Mensajes genéricos de error
+
+✅ **Testing**
+- Jest + Supertest
+- 21 tests de integración
+- Tests de Auth y Users
+- Coverage reports
 
 ✅ **DX (Developer Experience)**
 - Hot reload con nodemon
@@ -2210,24 +2822,7 @@ node-server/
 
 ### Próximas versiones (roadmap)
 
-🔜 **v0.7.0 - Mejoras en Users**
-- Endpoint para actualizar propio perfil
-- Cambio de contraseña
-- Soft delete
-
-🔜 **v0.8.0 - Seguridad adicional**
-- Rate limiting con express-rate-limit
-- Winston logger
-- Validación de roles/permisos
-
-🔜 **v0.9.0 - Testing**
-- Jest + Supertest configurado
-- Tests de auth
-- Tests de users
-- Tests de integración
-- Coverage
-
-🔜 **v1.0.0 - Producción**
+🔜 **v1.0.0 - Producción y documentación**
 - Documentación Swagger/OpenAPI
 - Dockerfile
 - CI/CD pipeline
@@ -2243,6 +2838,11 @@ node-server/
 npm run dev              # Modo desarrollo con hot-reload
 npm run build            # Compilar TypeScript
 npm start                # Ejecutar producción
+
+# Testing
+npm test                 # Ejecutar tests
+npm run test:watch       # Tests en modo watch
+npm run test:coverage    # Tests con cobertura
 
 # Base de datos
 docker-compose up -d     # Iniciar PostgreSQL

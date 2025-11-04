@@ -11,6 +11,7 @@ coverage/
 .env.test
 .env.production
 logs/
+*.tsbuildinfo
 
 
 /src/generated/prisma

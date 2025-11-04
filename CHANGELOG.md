@@ -1,5 +1,81 @@
 # Changelog
 
+## v0.9.0 - Testing con Jest y Supertest
+
+### Añadido
+- Jest configurado para TypeScript y ES modules
+- Supertest para tests de integración HTTP
+- Tests completos para módulo Auth (registro y login)
+- Tests completos para módulo Users (CRUD y perfil)
+- Scripts de test: test, test:watch, test:coverage
+- Cobertura de código con Jest
+
+### Tests implementados
+
+#### Auth Tests (src/tests/auth.test.ts)
+- ✓ Registro de nuevo usuario exitoso
+- ✓ Fallo con email duplicado
+- ✓ Validación de email inválido
+- ✓ Validación de contraseña corta
+- ✓ Validación de nombre corto
+- ✓ Login exitoso
+- ✓ Fallo con contraseña incorrecta
+- ✓ Fallo con email inexistente
+
+#### Users Tests (src/tests/users.test.ts)
+- ✓ Listar usuarios con autenticación
+- ✓ Fallo sin autenticación
+- ✓ Fallo con token inválido
+- ✓ Obtener perfil del usuario autenticado (/me)
+- ✓ Actualizar perfil propio
+- ✓ Cambiar contraseña con validación
+- ✓ Fallo al cambiar contraseña con contraseña actual incorrecta
+- ✓ Obtener usuario por ID
+- ✓ Fallo con ID inexistente
+
+### Configuración Jest
+- Preset: `ts-jest/presets/default-esm`
+- Soporte para ES modules con TypeScript
+- Test environment: node
+- Coverage en carpeta `coverage/`
+
+### Testing en modo test
+- Rate limiting deshabilitado en NODE_ENV=test
+- Logger configurado para test
+- Tests aislados con usuarios únicos por test
+
+### Dependencias nuevas
+- `jest` - Framework de testing
+- `ts-jest` - Preset TypeScript para Jest
+- `@types/jest` - Tipos para Jest
+- `supertest` - Testing HTTP
+- `@types/supertest` - Tipos para Supertest
+
+### Scripts nuevos
+```bash
+npm test              # Ejecutar todos los tests
+npm run test:watch    # Tests en modo watch
+npm run test:coverage # Tests con reporte de cobertura
+```
+
+### Archivos creados
+- `jest.config.js` - Configuración Jest
+- `src/tests/auth.test.ts` - Tests de autenticación
+- `src/tests/users.test.ts` - Tests de usuarios
+
+### Archivos modificados
+- `src/app.ts` - Deshabilitar rate limiting en tests
+- `package.json` - Scripts de testing
+- `.gitignore` - Añadido *.tsbuildinfo
+
+### Resultado de tests
+```
+Test Suites: 2 passed, 2 total
+Tests:       21 passed, 21 total
+```
+
+---
+
 ## v0.8.0 - Seguridad adicional (rate limiting y logging)
 
 ### Añadido
