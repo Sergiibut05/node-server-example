@@ -10,6 +10,7 @@ coverage/
 *.swo
 .env.test
 .env.production
+logs/
 
 
 /src/generated/prisma

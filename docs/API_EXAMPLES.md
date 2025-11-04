@@ -267,11 +267,60 @@ curl -X PATCH http://localhost:3000/api/users/1 \
 
 ---
 
-## Próximamente
+## Rate Limiting
 
-En versiones futuras se añadirán:
-- `POST /api/auth/register` - Registro de usuarios
-- `POST /api/auth/login` - Login con JWT
-- `GET /api/users/me` - Perfil del usuario autenticado
-- Rutas protegidas con JWT
+La API implementa rate limiting para proteger contra abuso:
+
+### Límite general
+- **100 requests por 15 minutos** desde la misma IP
+- Aplica a toda la API
+
+### Límite de autenticación
+- **5 intentos por 15 minutos** en endpoints de auth
+- Solo cuenta intentos fallidos
+- Aplica a `/api/auth/register` y `/api/auth/login`
+
+### Headers de respuesta
+Todas las respuestas incluyen headers de rate limit:
+
+```
+RateLimit-Limit: 100
+RateLimit-Remaining: 95
+RateLimit-Reset: 1604424000
+```
+
+### Ejemplo de límite excedido (429)
+```bash
+# Después de 5 intentos fallidos de login
+curl -X POST http://localhost:3000/api/auth/login \
+  -d '{"email":"test@test.com","password":"wrong"}'
+
+# Response:
+# {"message":"Demasiados intentos de autenticación, intenta de nuevo en 15 minutos"}
+```
+
+---
+
+## Logging
+
+La API utiliza Winston para logging profesional:
+
+### Niveles de log
+- `error` - Errores (500+)
+- `warn` - Advertencias (400-499)
+- `info` - Información general
+- `http` - Requests HTTP (200-399)
+- `debug` - Debug (solo en desarrollo)
+
+### Archivos de log
+- `logs/all.log` - Todos los logs
+- `logs/error.log` - Solo errores
+
+### Formato de logs
+```
+2025-11-04 13:27:55 info: API escuchando en http://localhost:3000
+2025-11-04 13:27:56 http: GET /health 200 2ms
+2025-11-04 13:27:57 warn: POST /login 401 45ms
+2025-11-04 13:27:58 error: GET /users 500 12ms
+```
 

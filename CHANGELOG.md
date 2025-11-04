@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.8.0 - Seguridad adicional (rate limiting y logging)
+
+### Añadido
+- Rate limiting global (100 requests por 15 minutos)
+- Rate limiting para autenticación (5 intentos por 15 minutos)
+- Logger Winston con niveles (error, warn, info, http, debug)
+- Logs en archivos (logs/all.log y logs/error.log)
+- Middleware de logging de requests personalizado
+- Límite de tamaño de payload JSON (10mb)
+- Mejora en graceful shutdown con logs
+
+### Seguridad mejorada
+- Protección contra brute force en endpoints de auth
+- Rate limiting por IP
+- Headers de rate limit en respuestas (RateLimit-*)
+- Logs de todas las peticiones HTTP
+- Logs de errores con stack trace
+- Carpeta logs/ ignorada en Git
+
+### Dependencias nuevas
+- `express-rate-limit` - Rate limiting
+- `winston` - Sistema de logging profesional
+
+### Rate limiters configurados
+- **generalLimiter**: 100 requests/15min para toda la API
+- **authLimiter**: 5 requests/15min para /api/auth/* (solo cuenta fallos)
+
+### Logger Winston
+- **Niveles**: error, warn, info, http, debug
+- **Transports**:
+  - Console con colores
+  - Archivo logs/all.log (todos los logs)
+  - Archivo logs/error.log (solo errores)
+- **Formato**: timestamp + nivel + mensaje
+
+### Archivos creados
+- `src/utils/logger.ts` - Configuración Winston
+- `src/middleware/rateLimiter.ts` - Rate limiters
+- `src/middleware/requestLogger.ts` - Logger de requests
+- `logs/` - Carpeta de archivos de log
+
+### Archivos modificados
+- `src/app.ts` - Integración de middlewares
+- `src/index.ts` - Logger en startup y shutdown
+- `src/middleware/error.ts` - Logs de errores
+- `.gitignore` - Añadida carpeta logs/
+
+---
+
 ## v0.7.0 - Mejoras en Users (actualizar perfil y cambiar contraseña)
 
 ### Añadido

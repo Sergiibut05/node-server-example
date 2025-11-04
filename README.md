@@ -15,6 +15,7 @@ Este proyecto implementa una API REST con Node.js, Express y PostgreSQL siguiend
   - [v0.5.0 - Módulo Auth (registro/login)](#v050---módulo-auth-registrologin)
   - [v0.6.0 - Middleware de autenticación](#v060---middleware-de-autenticación)
   - [v0.7.0 - Mejoras en Users](#v070---mejoras-en-users-actualizar-perfil-y-cambiar-contraseña)
+  - [v0.8.0 - Seguridad adicional](#v080---seguridad-adicional-rate-limiting-y-logging)
 
 ---
 
@@ -1678,6 +1679,443 @@ curl -X PATCH http://localhost:3000/api/users/me/password \
 - Protección contra sesiones robadas
 - Email único validado por Prisma
 - Todas las contraseñas hasheadas con bcrypt
+
+---
+
+## v0.8.0 - Seguridad adicional (rate limiting y logging)
+
+**Objetivo:** Mejorar la seguridad de la API implementando rate limiting para prevenir abuso y un sistema de logging profesional con Winston.
+
+### Paso 1: Instalar dependencias
+
+```bash
+npm install express-rate-limit winston
+```
+
+**Dependencias:**
+- `express-rate-limit` - Middleware para limitar peticiones por IP
+- `winston` - Sistema de logging profesional con niveles y transportes
+
+### Paso 2: Crear logger con Winston
+
+Crear `src/utils/logger.ts`:
+
+```typescript
+import winston from 'winston';
+import { env } from '../config/env.js';
+
+const levels = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  http: 3,
+  debug: 4,
+};
+
+const colors = {
+  error: 'red',
+  warn: 'yellow',
+  info: 'green',
+  http: 'magenta',
+  debug: 'blue',
+};
+
+winston.addColors(colors);
+
+const format = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.colorize({ all: true }),
+  winston.format.printf(
+    (info) => `${info.timestamp} ${info.level}: ${info.message}`
+  )
+);
+
+const transports = [
+  new winston.transports.Console(),
+  new winston.transports.File({
+    filename: 'logs/error.log',
+    level: 'error',
+  }),
+  new winston.transports.File({ filename: 'logs/all.log' }),
+];
+
+export const logger = winston.createLogger({
+  level: env.NODE_ENV === 'development' ? 'debug' : 'warn',
+  levels,
+  format,
+  transports,
+});
+```
+
+**Configuración del logger:**
+- **Niveles**: error (0), warn (1), info (2), http (3), debug (4)
+- **Colores**: error rojo, warn amarillo, info verde, http magenta, debug azul
+- **Formato**: timestamp + nivel + mensaje
+- **Transports**:
+  - Console: todos los logs con colores
+  - logs/error.log: solo errores
+  - logs/all.log: todos los logs
+- **Nivel por entorno**:
+  - Development: debug (todos)
+  - Production: warn (solo advertencias y errores)
+
+### Paso 3: Crear middleware de logging de requests
+
+Crear `src/middleware/requestLogger.ts`:
+
+```typescript
+import type { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger.js';
+
+export function requestLogger(req: Request, res: Response, next: NextFunction) {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const message = `${req.method} ${req.path} ${res.statusCode} ${duration}ms`;
+    
+    if (res.statusCode >= 500) {
+      logger.error(message);
+    } else if (res.statusCode >= 400) {
+      logger.warn(message);
+    } else {
+      logger.http(message);
+    }
+  });
+  
+  next();
+}
+```
+
+**Qué hace:**
+1. Registra tiempo de inicio de la petición
+2. Escucha evento 'finish' de la respuesta
+3. Calcula duración de la petición
+4. Registra log con nivel según código HTTP:
+   - 500+: error (rojo)
+   - 400-499: warn (amarillo)
+   - 200-399: http (magenta)
+
+### Paso 4: Crear rate limiters
+
+Crear `src/middleware/rateLimiter.ts`:
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+export const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { message: 'Demasiadas peticiones desde esta IP, intenta de nuevo en 15 minutos' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { message: 'Demasiados intentos de autenticación, intenta de nuevo en 15 minutos' },
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+```
+
+**generalLimiter:**
+- Ventana: 15 minutos
+- Máximo: 100 peticiones
+- Aplica a toda la API
+- Headers estándar (RateLimit-*)
+
+**authLimiter:**
+- Ventana: 15 minutos
+- Máximo: 5 peticiones
+- `skipSuccessfulRequests: true` - Solo cuenta intentos fallidos
+- Protege contra brute force en login/registro
+- Aplica solo a rutas de auth
+
+**Headers de respuesta:**
+```
+RateLimit-Limit: 100
+RateLimit-Remaining: 95
+RateLimit-Reset: 1604424000
+```
+
+### Paso 5: Actualizar app.ts
+
+Editar `src/app.ts`:
+
+```typescript
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { errorHandler } from './middleware/error.js';
+import { generalLimiter, authLimiter } from './middleware/rateLimiter.js';
+import { requestLogger } from './middleware/requestLogger.js';
+import authRoutes from './modules/auth/auth.routes.js';
+import usersRoutes from './modules/users/users.routes.js';
+
+const app = express();
+
+app.use(helmet());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(requestLogger);
+app.use(generalLimiter);
+
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/users', usersRoutes);
+
+app.use(errorHandler);
+
+export default app;
+```
+
+**Cambios:**
+- Eliminado morgan (reemplazado por requestLogger personalizado)
+- Añadido `express.json({ limit: '10mb' })` - Límite de payload
+- Añadido requestLogger para logging
+- Añadido generalLimiter para toda la API
+- Añadido authLimiter específico para rutas de auth
+
+**Orden de middlewares importante:**
+1. helmet (seguridad)
+2. cors
+3. json parser con límite
+4. requestLogger (antes de limiters para registrar todo)
+5. generalLimiter
+6. Rutas con limiters específicos
+7. errorHandler (último)
+
+### Paso 6: Actualizar index.ts con logger
+
+Editar `src/index.ts`:
+
+```typescript
+import app from './app.js';
+import { env } from './config/env.js';
+import { logger } from './utils/logger.js';
+
+const server = app.listen(env.PORT, () => {
+  logger.info(`API escuchando en http://localhost:${env.PORT}`);
+  logger.info(`Entorno: ${env.NODE_ENV}`);
+});
+
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM recibido, cerrando servidor...');
+  server.close(() => {
+    logger.info('Servidor cerrado');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT recibido, cerrando servidor...');
+  server.close(() => {
+    logger.info('Servidor cerrado');
+    process.exit(0);
+  });
+});
+```
+
+**Mejoras:**
+- Logs en startup con info de puerto y entorno
+- Logs en graceful shutdown (SIGTERM/SIGINT)
+- Más verbosidad en proceso de cierre
+
+### Paso 7: Actualizar error handler
+
+Editar `src/middleware/error.ts`:
+
+```typescript
+import type { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger.js';
+
+export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
+  logger.error(`${req.method} ${req.path} - ${err.message}`);
+  logger.error(err.stack);
+  
+  const status = err.status || 500;
+  res.status(status).json({ message: err.message || 'Error interno' });
+}
+```
+
+**Mejoras:**
+- Log de error con método y path
+- Log de stack trace completo
+- Útil para debugging
+
+### Paso 8: Crear carpeta de logs y actualizar .gitignore
+
+```bash
+mkdir -p logs
+```
+
+Añadir a `.gitignore`:
+
+```
+logs/
+```
+
+**Por qué ignorar logs:**
+- Archivos pueden ser grandes
+- Contienen información sensible
+- Se regeneran en cada entorno
+
+### Paso 9: Compilar y verificar
+
+```bash
+npm run build
+```
+
+**Debe compilar sin errores.**
+
+### Paso 10: Probar logging
+
+```bash
+npm start
+```
+
+**Logs en consola:**
+```
+2025-11-04 13:27:55 info: API escuchando en http://localhost:3000
+2025-11-04 13:27:55 info: Entorno: development
+```
+
+**Probar endpoint:**
+```bash
+curl http://localhost:3000/health
+```
+
+**Log esperado:**
+```
+2025-11-04 13:28:01 http: GET /health 200 2ms
+```
+
+### Paso 11: Probar rate limiting general
+
+```bash
+# Hacer muchas peticiones rápidas
+for i in {1..105}; do
+  curl -s http://localhost:3000/health > /dev/null
+  echo "Request $i"
+done
+```
+
+**Resultado esperado:**
+- Primeras 100: funcionan (200)
+- Siguientes: bloqueadas (429)
+
+**Respuesta al exceder límite:**
+```json
+{
+  "message": "Demasiadas peticiones desde esta IP, intenta de nuevo en 15 minutos"
+}
+```
+
+### Paso 12: Probar rate limiting de auth
+
+```bash
+# Intentar login 7 veces con credenciales incorrectas
+for i in {1..7}; do
+  curl -X POST http://localhost:3000/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"wrong@test.com","password":"wrongpass123"}'
+  echo "\nIntento $i"
+done
+```
+
+**Resultado esperado:**
+- Primeros 5 intentos: error de validación o credenciales
+- Siguientes: rate limit (429)
+
+**Respuesta:**
+```json
+{
+  "message": "Demasiados intentos de autenticación, intenta de nuevo en 15 minutos"
+}
+```
+
+**Logs generados:**
+```
+2025-11-04 13:29:15 warn: POST /login 400 1ms
+2025-11-04 13:29:15 warn: POST /login 400 1ms
+2025-11-04 13:29:15 warn: POST /login 400 1ms
+2025-11-04 13:29:15 warn: POST /login 400 1ms
+2025-11-04 13:29:15 warn: POST /login 400 1ms
+2025-11-04 13:29:15 warn: POST /login 429 1ms
+2025-11-04 13:29:15 warn: POST /login 429 1ms
+```
+
+### Paso 13: Verificar archivos de log
+
+```bash
+# Ver últimos logs
+tail -10 logs/all.log
+
+# Ver solo errores
+tail -10 logs/error.log
+
+# Ver logs en tiempo real
+tail -f logs/all.log
+```
+
+**Contenido ejemplo de logs/all.log:**
+```
+2025-11-04 13:27:55 info: API escuchando en http://localhost:3000
+2025-11-04 13:27:55 info: Entorno: development
+2025-11-04 13:28:01 http: GET /health 200 2ms
+2025-11-04 13:29:15 warn: POST /login 401 45ms
+2025-11-04 13:29:20 http: GET /api/users 200 12ms
+```
+
+### ✅ Resultado v0.8.0
+
+- ✅ Rate limiting global (100/15min)
+- ✅ Rate limiting auth (5/15min, solo fallos)
+- ✅ Logger Winston con 5 niveles
+- ✅ Logs en archivos (all.log, error.log)
+- ✅ Logs en consola con colores
+- ✅ Middleware de logging de requests
+- ✅ Headers de rate limit en respuestas
+- ✅ Límite de payload JSON (10mb)
+- ✅ Graceful shutdown con logs
+- ✅ Protección contra brute force
+
+**Archivos creados:**
+- `src/utils/logger.ts` - Configuración Winston
+- `src/middleware/rateLimiter.ts` - Rate limiters (2)
+- `src/middleware/requestLogger.ts` - Logger de requests
+- `logs/` - Carpeta de archivos de log
+
+**Archivos modificados:**
+- `src/app.ts` - Integración de middlewares
+- `src/index.ts` - Logger en startup/shutdown
+- `src/middleware/error.ts` - Logs de errores
+- `.gitignore` - Añadida logs/
+
+**Seguridad mejorada:**
+- Protección contra brute force en auth (max 5 intentos)
+- Rate limiting por IP en toda la API
+- Logs de todas las peticiones para auditoría
+- Logs de errores con stack trace para debugging
+- Límite de tamaño de payload (previene DoS)
+- Headers estándar de rate limit
+
+**Beneficios del logging:**
+- Auditoría de accesos
+- Debugging de errores
+- Monitoreo de performance (duración de requests)
+- Detección de patrones de abuso
+- Logs persistentes en archivos
+
+**Rate limiting efectivo:**
+- Previene brute force attacks
+- Protege recursos de la API
+- Distribuye carga equitativamente
+- Headers informativos para clientes
 
 ---
 
