@@ -14,6 +14,76 @@ Respuesta:
 
 ---
 
+## Auth
+
+### Registro de usuario
+```bash
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","name":"Test User","password":"password123"}'
+```
+
+**Response (201):**
+```json
+{
+  "user": {
+    "id": 1,
+    "email": "test@example.com",
+    "name": "Test User",
+    "createdAt": "2025-11-04T11:34:54.797Z"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### Login
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+```
+
+**Response (200):**
+```json
+{
+  "user": {
+    "id": 1,
+    "email": "test@example.com",
+    "name": "Test User",
+    "createdAt": "2025-11-04T11:34:54.797Z"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### Casos de error
+
+**Email ya registrado (409):**
+```bash
+curl -X POST http://localhost:3000/api/auth/register \
+  -d '{"email":"test@example.com","name":"Test","password":"12345678"}'
+
+# {"message":"Email ya registrado"}
+```
+
+**Credenciales inválidas (401):**
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -d '{"email":"test@example.com","password":"wrongpassword"}'
+
+# {"message":"Credenciales inválidas"}
+```
+
+**Validación de contraseña (400):**
+```bash
+curl -X POST http://localhost:3000/api/auth/register \
+  -d '{"email":"new@example.com","name":"User","password":"123"}'
+
+# {"message":"...La contraseña debe tener al menos 8 caracteres..."}
+```
+
+---
+
 ## Users
 
 ### Listar usuarios

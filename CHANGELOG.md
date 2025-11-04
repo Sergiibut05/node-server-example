@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.5.0 - Módulo Auth (registro/login)
+
+### Añadido
+- Módulo de autenticación completo
+- Registro de usuarios con hash de contraseñas (bcrypt)
+- Login con verificación de contraseñas
+- Generación de JWT con expiración de 7 días
+- Auth service con manejo de errores específicos
+- Auth controller con validación Zod integrada
+- Rutas de autenticación
+
+### Endpoints nuevos
+- `POST /api/auth/register` - Registro de usuarios
+- `POST /api/auth/login` - Login y generación de JWT
+
+### Seguridad implementada
+- Hash de contraseñas con bcrypt (10 rounds por defecto)
+- JWT firmado con secret desde variables de entorno
+- Payload JWT: sub (user id), email, iat, exp
+- Validación de datos de entrada con Zod
+- Mensajes de error genéricos para seguridad
+
+### Manejo de errores
+- Email duplicado (409 Conflict)
+- Credenciales inválidas (401 Unauthorized)
+- Validación de entrada (400 Bad Request)
+
+### Archivos principales
+- `src/modules/auth/auth.service.ts` - Lógica de negocio
+- `src/modules/auth/auth.controller.ts` - Controladores HTTP
+- `src/modules/auth/auth.routes.ts` - Rutas de auth
+
+### Flujo de autenticación
+1. Usuario se registra con email, name, password
+2. Sistema valida datos con Zod
+3. Sistema hashea contraseña con bcrypt
+4. Sistema crea usuario en base de datos
+5. Sistema genera JWT
+6. Usuario recibe token para autenticar futuras peticiones
+
+---
+
 ## v0.4.0 - Validación con Zod
 
 ### Añadido
