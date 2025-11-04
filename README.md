@@ -2908,6 +2908,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
 
+RUN mkdir -p logs && chown -R node:node /app
+
 ENV NODE_ENV=production
 
 USER node
@@ -2933,6 +2935,7 @@ CMD ["dumb-init", "node", "dist/index.js"]
 - Solo dependencias de producción
 - Multi-stage reduce tamaño final
 - Usuario no-root para seguridad
+- Carpeta `logs/` creada con permisos correctos
 
 ### Paso 5: Crear .dockerignore
 

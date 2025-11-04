@@ -23,6 +23,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
 
+RUN mkdir -p logs && chown -R node:node /app
+
 ENV NODE_ENV=production
 
 USER node
