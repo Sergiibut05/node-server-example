@@ -128,6 +128,42 @@ const options: swaggerJsdoc.Options = {
             },
           },
         },
+        Post: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            title: { type: 'string' },
+            content: { type: 'string', nullable: true },
+            published: { type: 'boolean' },
+            createdAt: { type: 'string', format: 'date-time' },
+            authorId: { type: 'integer' },
+            author: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                email: { type: 'string', format: 'email' },
+                name: { type: 'string' },
+              },
+            },
+          },
+        },
+        CreatePostInput: {
+          type: 'object',
+          required: ['title'],
+          properties: {
+            title: { type: 'string' },
+            content: { type: 'string' },
+            published: { type: 'boolean' },
+          },
+        },
+        UpdatePostInput: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            content: { type: 'string' },
+            published: { type: 'boolean' },
+          },
+        },
         Error: {
           type: 'object',
           properties: {
@@ -147,9 +183,16 @@ const options: swaggerJsdoc.Options = {
         name: 'Users',
         description: 'Gestión de usuarios',
       },
+      { 
+        name: 'Posts', 
+        description: 'Gestión de publicaciones' 
+      }
     ],
   },
-  apis: [join(__dirname, '../modules/**/*.routes.js')],
+  apis: [
+    join(__dirname, '../modules/**/*.routes.js'),
+    join(__dirname, '../modules/**/*.routes.ts'),
+  ],
 };
 
 export const swaggerSpec = swaggerJsdoc(options);
